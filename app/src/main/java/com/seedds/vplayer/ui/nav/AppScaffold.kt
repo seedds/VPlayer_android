@@ -12,6 +12,7 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -21,6 +22,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.seedds.vplayer.app.AppContainer
 import com.seedds.vplayer.library.LibraryScreen
@@ -29,6 +31,8 @@ import com.seedds.vplayer.settings.SettingKey
 import com.seedds.vplayer.settings.SettingPickerScreen
 import com.seedds.vplayer.settings.SettingsScreen
 import com.seedds.vplayer.settings.SettingsViewModel
+import com.seedds.vplayer.upload.UploadScreen
+import com.seedds.vplayer.upload.UploadViewModel
 import com.seedds.vplayer.ui.theme.VColors
 
 /** Which full-screen destination is showing over the tabs, if any. */
@@ -42,9 +46,18 @@ private sealed interface Overlay {
  */
 @Composable
 fun AppScaffold(container: AppContainer) {
-    val factory = remember(container) { appViewModelFactory(container) }
+    val application = LocalContext.current.applicationContext as android.app.Application
+    val factory = remember(container) { appViewModelFactory(application, container) }
     val libraryViewModel: LibraryViewModel = viewModel(factory = factory)
     val settingsViewModel: SettingsViewModel = viewModel(factory = factory)
+    val uploadViewModel: UploadViewModel = viewModel(factory = factory)
+
+    // The browser can add, rename or delete files at any time; refresh the
+    // library whenever the server says something changed.
+    DisposableEffect(container) {
+        container.serverController.setLibraryChangedListener { libraryViewModel.refresh() }
+        onDispose { container.serverController.setLibraryChangedListener(null) }
+    }
 
     var selectedTab by remember { mutableStateOf(TabDestination.Library) }
     var overlay by remember { mutableStateOf<Overlay?>(null) }
@@ -103,7 +116,7 @@ fun AppScaffold(container: AppContainer) {
                     onPlayVideo = { /* wired up with the player */ },
                 )
 
-                TabDestination.Upload -> Box(Modifier.fillMaxSize())
+                TabDestination.Upload -> UploadScreen(viewModel = uploadViewModel)
 
                 TabDestination.Settings -> SettingsScreen(
                     viewModel = settingsViewModel,
