@@ -4,6 +4,7 @@ import android.content.Context
 import com.seedds.vplayer.data.fs.LibraryPaths
 import com.seedds.vplayer.data.library.LibraryArtifacts
 import com.seedds.vplayer.data.library.LibraryRepository
+import com.seedds.vplayer.data.media.MediaProbe
 import com.seedds.vplayer.data.media.ThumbnailCache
 import com.seedds.vplayer.data.store.PlaybackStateStore
 import com.seedds.vplayer.data.store.SettingsStore
@@ -35,6 +36,8 @@ class AppContainer(private val appContext: Context) {
     val thumbnailCache = ThumbnailCache(paths)
 
     val libraryArtifacts = LibraryArtifacts(playbackStateStore, thumbnailCache)
+
+    val mediaProbe = MediaProbe(paths, thumbnailCache, playbackStateStore)
 
     val lanAddressMonitor = LanAddressMonitor(appContext)
 

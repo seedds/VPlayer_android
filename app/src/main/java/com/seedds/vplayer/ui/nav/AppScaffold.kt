@@ -55,7 +55,10 @@ fun AppScaffold(container: AppContainer) {
     // The browser can add, rename or delete files at any time; refresh the
     // library whenever the server says something changed.
     DisposableEffect(container) {
-        container.serverController.setLibraryChangedListener { libraryViewModel.refresh() }
+        container.serverController.setLibraryChangedListener {
+            libraryViewModel.refresh()
+            libraryViewModel.hydrateWholeLibrary()
+        }
         onDispose { container.serverController.setLibraryChangedListener(null) }
     }
 

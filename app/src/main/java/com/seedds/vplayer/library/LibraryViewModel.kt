@@ -5,6 +5,8 @@ import androidx.lifecycle.viewModelScope
 import com.seedds.vplayer.app.AppContainer
 import com.seedds.vplayer.data.fs.LibraryNames
 import com.seedds.vplayer.data.library.LibraryArtifacts
+import com.seedds.vplayer.data.media.HydrationCoordinator
+import com.seedds.vplayer.data.media.ProbeResult
 import com.seedds.vplayer.data.model.LibraryItem
 import com.seedds.vplayer.data.store.PlaybackEntry
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -61,6 +63,21 @@ class LibraryViewModel(private val container: AppContainer) : ViewModel() {
      */
     private var anchorIndex: Int? = null
 
+    private val hydration = HydrationCoordinator(
+        scope = viewModelScope,
+        probe = container.mediaProbe,
+        thumbnailCache = container.thumbnailCache,
+        onResults = ::applyProbeResults,
+    )
+
+    /**
+     * The identity of the folder's videos, so hydration only restarts when
+     * there is genuinely new work. A plain refresh hands back an equal-but-new
+     * list, and keying on the list itself would cancel probes mid-flight every
+     * time the user switched tabs.
+     */
+    private var hydratedFolderKey: String? = null
+
     init {
         refresh()
     }
@@ -90,7 +107,64 @@ class LibraryViewModel(private val container: AppContainer) : ViewModel() {
                     selectedPaths = selection,
                 )
             }
+
+            hydrateVisibleFolder(items.filterIsInstance<LibraryItem.Video>(), playback)
         }
+    }
+
+    private fun hydrateVisibleFolder(
+        videos: List<LibraryItem.Video>,
+        playback: Map<String, com.seedds.vplayer.data.store.PlaybackEntry>,
+    ) {
+        val key = videos.joinToString("\n") { "${'$'}{it.relativePath}|${'$'}{it.size}|${'$'}{it.modified}" }
+        if (key == hydratedFolderKey) return
+        hydratedFolderKey = key
+        hydration.hydrate(videos, playback.mapValues { (_, entry) -> entry.durationSeconds })
+    }
+
+    /**
+     * Folds a batch of probe results into the visible state. Copy-on-write with
+     * an identity check keeps rows that did not change from recomposing.
+     */
+    private fun applyProbeResults(results: List<ProbeResult>) {
+        if (results.isEmpty()) return
+        _state.update { current ->
+            val thumbnails = current.thumbnails.toMutableMap()
+            val playback = current.playbackState.toMutableMap()
+            var changed = false
+
+            results.forEach { result ->
+                result.thumbnail?.absolutePath?.let { path ->
+                    if (thumbnails.put(result.relativePath, path) != path) changed = true
+                }
+                val duration = result.durationSeconds
+                if (duration != null) {
+                    val existing = playback[result.relativePath]
+                    if (existing?.durationSeconds != duration) {
+                        playback[result.relativePath] = (existing ?: com.seedds.vplayer.data.store.PlaybackEntry())
+                            .copy(durationSeconds = duration)
+                        changed = true
+                    }
+                }
+            }
+
+            if (changed) current.copy(thumbnails = thumbnails, playbackState = playback) else current
+        }
+    }
+
+    /** A change made through the browser can touch anything, so sweep it all. */
+    fun hydrateWholeLibrary() {
+        viewModelScope.launch {
+            val videos = repository.listAllVideos()
+            val playback = playbackStateStore.all()
+            hydration.hydrate(videos, playback.mapValues { (_, entry) -> entry.durationSeconds })
+            hydration.pruneAfter(videos)
+        }
+    }
+
+    override fun onCleared() {
+        hydration.cancel()
+        super.onCleared()
     }
 
     fun openFolder(relativePath: String) {
