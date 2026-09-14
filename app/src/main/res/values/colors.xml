@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="vplayer_background">#efe7db</color>
+    <color name="vplayer_icon_background">#E6F4FE</color>
+    <color name="splash_background">#ffffff</color>
+</resources>
