@@ -18,11 +18,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.seedds.vplayer.ui.components.ButtonTone
 import com.seedds.vplayer.ui.components.Panel
+import com.seedds.vplayer.ui.components.VButton
 import com.seedds.vplayer.ui.theme.VColors
 
 @Composable
@@ -38,6 +41,8 @@ fun SettingsScreen(
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
+        item { BatteryPanel() }
+
         items(SettingsCatalog.panels.size) { index ->
             val panel = SettingsCatalog.panels[index]
             Panel(title = panel.title, subtitle = panel.subtitle) {
@@ -74,6 +79,51 @@ fun SettingsScreen(
             }
         }
     }
+}
+
+/**
+ * Aggressive battery management is the usual reason a long upload dies halfway
+ * on a phone that is otherwise working fine, and it is not something the app
+ * can fix from the inside. Offer the exemption and explain why.
+ */
+@Composable
+private fun BatteryPanel() {
+    val context = LocalContext.current
+    Panel(
+        title = "Background uploads",
+        subtitle = "Some phones stop background transfers to save battery.",
+    ) {
+        Text(
+            text = "If large uploads stop when you switch apps or the screen turns off, " +
+                "allow VPlayer to keep running in the background.",
+            color = VColors.TextMutedPanel,
+            fontSize = 14.sp,
+            lineHeight = 20.sp,
+        )
+        VButton(
+            label = "Battery settings",
+            onClick = { openBatterySettings(context) },
+            tone = ButtonTone.Secondary,
+            horizontalPadding = 16.dp,
+            verticalPadding = 12.dp,
+            fontSize = 14.sp,
+            cornerRadius = 16.dp,
+        )
+    }
+}
+
+private fun openBatterySettings(context: android.content.Context) {
+    // The per-app request dialog is the direct route, but it is not present on
+    // every build, so fall back to the system list rather than doing nothing.
+    val direct = android.content.Intent(
+        android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+        android.net.Uri.parse("package:" + context.packageName),
+    )
+    val fallback = android.content.Intent(
+        android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS,
+    )
+    runCatching { context.startActivity(direct) }
+        .recoverCatching { context.startActivity(fallback) }
 }
 
 @Composable

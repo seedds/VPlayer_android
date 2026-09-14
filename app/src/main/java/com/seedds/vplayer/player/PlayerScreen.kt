@@ -68,7 +68,7 @@ import kotlinx.coroutines.delay
  * controls without disabling the gestures, so a phone in a pocket or a hand
  * resting on the screen cannot skip the video, while a tap still works.
  */
-@OptIn(UnstableApi::class)
+@androidx.annotation.OptIn(UnstableApi::class)
 @Composable
 fun PlayerScreen(
     viewModel: PlayerViewModel,
