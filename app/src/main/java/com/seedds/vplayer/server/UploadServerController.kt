@@ -88,15 +88,17 @@ class UploadServerController(
                 withContext(Dispatchers.IO) {
                     paths.ensureDirectories()
                     clearStagingDirectories()
-                    val deps = dependenciesFactory(sessions).withLibraryChanged { libraryChangedListener?.invoke() }
-                    embeddedServer(CIO, port = resolvedPort, host = BIND_ADDRESS) {
-                        uploadServerModule(deps)
-                    }.also { server ->
-                        server.start(wait = false)
-                        engine = server
-                        boundPort = resolvedPort
-                    }
                 }
+                val deps = dependenciesFactory(sessions).withLibraryChanged { libraryChangedListener?.invoke() }
+                val server = embeddedServer(CIO, port = resolvedPort, host = BIND_ADDRESS) {
+                    uploadServerModule(deps)
+                }
+                // The blocking start() waits on the engine from inside
+                // runBlocking, which deadlocks when it is called from a
+                // coroutine. The suspending pair is the one to use here.
+                server.startSuspend(wait = false)
+                engine = server
+                boundPort = resolvedPort
             } catch (error: Throwable) {
                 engine = null
                 boundPort = null
@@ -121,9 +123,7 @@ class UploadServerController(
     private suspend fun stopLocked() {
         val wasRunning = engine != null
         engine?.let { server ->
-            withContext(Dispatchers.IO) {
-                runCatching { server.stop(STOP_GRACE_MS, STOP_TIMEOUT_MS) }
-            }
+            runCatching { server.stopSuspend(STOP_GRACE_MS, STOP_TIMEOUT_MS) }
         }
         engine = null
         boundPort = null

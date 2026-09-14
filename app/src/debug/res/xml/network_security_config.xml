@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Debug builds only. The app never acts as an HTTP client, but the on-device
+  server tests do: they drive the running server over plain HTTP on loopback,
+  which Android's default policy blocks. Release builds keep the strict default.
+-->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">127.0.0.1</domain>
+        <domain includeSubdomains="false">localhost</domain>
+    </domain-config>
+</network-security-config>

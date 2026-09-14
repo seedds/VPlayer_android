@@ -397,9 +397,17 @@ class PlayerViewModel(
         _state.update { it.copy(scrubbing = false, locked = false, controlsVisible = true) }
     }
 
+    /**
+     * Leaving the player frees the decoder rather than just pausing it. The
+     * view model outlives the screen, and holding a hardware decoder open while
+     * the user browses the library can starve other apps of one.
+     */
     fun onLeaving() {
         persistPosition(force = true)
         player.pause()
+        player.clearMediaItems()
+        _state.update { it.copy(video = null, subtitleText = null, previewFrame = null) }
+        cues = emptyList()
     }
 
     override fun onCleared() {
