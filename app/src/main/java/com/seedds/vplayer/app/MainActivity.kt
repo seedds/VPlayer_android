@@ -19,7 +19,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             VPlayerTheme {
-                AppScaffold()
+                AppScaffold((application as VPlayerApp).container)
             }
         }
     }

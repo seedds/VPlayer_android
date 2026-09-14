@@ -192,6 +192,7 @@ dependencies {
     implementation(libs.ktor.server.content.negotiation)
     implementation(libs.ktor.serialization.json)
     implementation(libs.slf4j.nop)
+    implementation(libs.coil.compose)
 
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.android)

@@ -16,38 +16,70 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.seedds.vplayer.app.AppContainer
+import com.seedds.vplayer.library.LibraryScreen
+import com.seedds.vplayer.library.LibraryViewModel
+import com.seedds.vplayer.settings.SettingKey
+import com.seedds.vplayer.settings.SettingPickerScreen
+import com.seedds.vplayer.settings.SettingsScreen
+import com.seedds.vplayer.settings.SettingsViewModel
 import com.seedds.vplayer.ui.theme.VColors
 
+/** Which full-screen destination is showing over the tabs, if any. */
+private sealed interface Overlay {
+    data class Picker(val key: SettingKey) : Overlay
+}
+
 /**
- * Root shell: three bottom tabs, no icons, with the tab bar styled to match the
- * app background rather than a Material surface.
+ * Root shell: three bottom tabs with no icons, and the tab bar painted to match
+ * the app background rather than a raised Material surface.
  */
 @Composable
-fun AppScaffold() {
-    var selected by remember { mutableStateOf(TabDestination.Library) }
+fun AppScaffold(container: AppContainer) {
+    val factory = remember(container) { appViewModelFactory(container) }
+    val libraryViewModel: LibraryViewModel = viewModel(factory = factory)
+    val settingsViewModel: SettingsViewModel = viewModel(factory = factory)
+
+    var selectedTab by remember { mutableStateOf(TabDestination.Library) }
+    var overlay by remember { mutableStateOf<Overlay?>(null) }
+
+    when (val current = overlay) {
+        is Overlay.Picker -> {
+            SettingPickerScreen(
+                viewModel = settingsViewModel,
+                settingKey = current.key,
+                onBack = { overlay = null },
+                modifier = Modifier.fillMaxSize(),
+            )
+            return
+        }
+        null -> Unit
+    }
 
     Scaffold(
         containerColor = VColors.Background,
         bottomBar = {
             Column {
-                HorizontalDivider(thickness = androidx.compose.ui.unit.Dp.Hairline, color = VColors.DividerTabBar)
-                NavigationBar(containerColor = VColors.Background, tonalElevation = androidx.compose.ui.unit.Dp(0f)) {
+                HorizontalDivider(thickness = Dp.Hairline, color = VColors.DividerTabBar)
+                NavigationBar(containerColor = VColors.Background, tonalElevation = 0.dp) {
                     TabDestination.entries.forEach { tab ->
                         NavigationBarItem(
-                            selected = selected == tab,
-                            onClick = { selected = tab },
-                            icon = {},
-                            label = {
-                                Text(
-                                    text = tab.label,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                )
+                            selected = selectedTab == tab,
+                            onClick = {
+                                selectedTab = tab
+                                when (tab) {
+                                    TabDestination.Library -> libraryViewModel.refresh()
+                                    else -> libraryViewModel.cancelSelection()
+                                }
                             },
+                            icon = {},
+                            label = { Text(text = tab.label, fontSize = 12.sp, fontWeight = FontWeight.Bold) },
                             colors = NavigationBarItemDefaults.colors(
                                 selectedTextColor = VColors.Primary,
                                 unselectedTextColor = VColors.TextSecondary,
@@ -64,9 +96,20 @@ fun AppScaffold() {
                 .fillMaxSize()
                 .background(VColors.Background)
                 .padding(innerPadding),
-            contentAlignment = Alignment.Center,
         ) {
-            Text(text = selected.label, color = VColors.TextPrimary)
+            when (selectedTab) {
+                TabDestination.Library -> LibraryScreen(
+                    viewModel = libraryViewModel,
+                    onPlayVideo = { /* wired up with the player */ },
+                )
+
+                TabDestination.Upload -> Box(Modifier.fillMaxSize())
+
+                TabDestination.Settings -> SettingsScreen(
+                    viewModel = settingsViewModel,
+                    onOpenPicker = { key -> overlay = Overlay.Picker(key) },
+                )
+            }
         }
     }
 }
