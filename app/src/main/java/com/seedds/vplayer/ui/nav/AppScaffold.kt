@@ -13,6 +13,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -26,7 +27,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.seedds.vplayer.app.AppContainer
 import com.seedds.vplayer.library.LibraryScreen
+import com.seedds.vplayer.data.model.LibraryItem
 import com.seedds.vplayer.library.LibraryViewModel
+import com.seedds.vplayer.player.PlayerScreen
+import com.seedds.vplayer.player.PlayerViewModel
 import com.seedds.vplayer.settings.SettingKey
 import com.seedds.vplayer.settings.SettingPickerScreen
 import com.seedds.vplayer.settings.SettingsScreen
@@ -38,6 +42,7 @@ import com.seedds.vplayer.ui.theme.VColors
 /** Which full-screen destination is showing over the tabs, if any. */
 private sealed interface Overlay {
     data class Picker(val key: SettingKey) : Overlay
+    data object Player : Overlay
 }
 
 /**
@@ -64,6 +69,19 @@ fun AppScaffold(container: AppContainer) {
 
     var selectedTab by remember { mutableStateOf(TabDestination.Library) }
     var overlay by remember { mutableStateOf<Overlay?>(null) }
+    var pendingPlayback by remember { mutableStateOf<LibraryItem.Video?>(null) }
+
+    // Opening the player needs the view model, which is only created once the
+    // overlay is showing; hand it the queue as soon as both exist.
+    val playerViewModel: PlayerViewModel = viewModel(factory = factory)
+    LaunchedEffect(pendingPlayback) {
+        val video = pendingPlayback ?: return@LaunchedEffect
+        val videos = libraryViewModel.state.value.videos
+        val index = videos.indexOfFirst { it.relativePath == video.relativePath }.coerceAtLeast(0)
+        playerViewModel.open(videos, index)
+        pendingPlayback = null
+        overlay = Overlay.Player
+    }
 
     when (val current = overlay) {
         is Overlay.Picker -> {
@@ -75,6 +93,21 @@ fun AppScaffold(container: AppContainer) {
             )
             return
         }
+
+        Overlay.Player -> {
+            PlayerScreen(
+                viewModel = playerViewModel,
+                onClose = {
+                    overlay = null
+                    // Progress, and possibly a new thumbnail, changed while the
+                    // player was up.
+                    libraryViewModel.refresh()
+                },
+                modifier = Modifier.fillMaxSize(),
+            )
+            return
+        }
+
         null -> Unit
     }
 
@@ -116,7 +149,7 @@ fun AppScaffold(container: AppContainer) {
             when (selectedTab) {
                 TabDestination.Library -> LibraryScreen(
                     viewModel = libraryViewModel,
-                    onPlayVideo = { /* wired up with the player */ },
+                    onPlayVideo = { video -> pendingPlayback = video },
                 )
 
                 TabDestination.Upload -> UploadScreen(viewModel = uploadViewModel)

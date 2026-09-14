@@ -6,6 +6,7 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.seedds.vplayer.app.AppContainer
 import com.seedds.vplayer.library.LibraryViewModel
+import com.seedds.vplayer.player.PlayerViewModel
 import com.seedds.vplayer.settings.SettingsViewModel
 import com.seedds.vplayer.upload.UploadViewModel
 
@@ -15,4 +16,5 @@ fun appViewModelFactory(application: Application, container: AppContainer): View
         initializer { LibraryViewModel(container) }
         initializer { SettingsViewModel(container) }
         initializer { UploadViewModel(application, container) }
+        initializer { PlayerViewModel(application, container) }
     }
