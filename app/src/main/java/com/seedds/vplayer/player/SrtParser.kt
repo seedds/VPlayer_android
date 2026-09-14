@@ -21,7 +21,7 @@ object SrtParser {
     private val TIMESTAMP = Regex("""^(\d{1,2}):(\d{2}):(\d{2})[,.](\d{1,3})$""")
     private val STYLE_TAG = Regex("""</?(?:i|b|u|font)(?:\s[^>]*)?>""", RegexOption.IGNORE_CASE)
     private const val ARROW = "-->"
-    private const val BOM = '﻿'
+    private const val BOM = '\uFEFF'
 
     fun parse(content: String): List<SubtitleCue> {
         val normalized = content
