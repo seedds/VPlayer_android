@@ -208,3 +208,10 @@ dependencies {
     androidTestImplementation(libs.okhttp)
     androidTestImplementation(libs.kotlinx.coroutines.test)
 }
+
+/** Prints the derived release identity, so CI and humans can sanity-check it. */
+tasks.register("printVersion") {
+    val name = computedVersionName
+    val code = computedVersionCode
+    doLast { println("versionName=$name versionCode=$code apk=vplayer-$name.apk") }
+}
