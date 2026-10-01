@@ -1,5 +1,6 @@
 package com.seedds.vplayer.settings
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -38,6 +39,9 @@ fun SettingPickerScreen(
     val error by viewModel.error.collectAsStateWithLifecycle()
     val meta = SettingsCatalog[settingKey]
     val current = settings[settingKey]
+
+    // A stacked screen: system back returns to Settings like the back label.
+    BackHandler(onBack = onBack)
 
     Column(modifier = modifier.fillMaxSize().background(VColors.Background)) {
         Row(
