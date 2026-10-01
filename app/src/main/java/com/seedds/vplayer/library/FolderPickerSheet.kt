@@ -153,8 +153,7 @@ fun FolderPickerSheet(
                 text = when {
                     currentIsSource -> "Items are already in this folder."
                     currentIsInsideMoved -> "A folder cannot be moved into itself."
-                    browseFolderName != null -> "Move here into \"$browseFolderName\"."
-                    else -> "Move here into the library root."
+                    else -> "Move here into \"${browseFolderName ?: "Library"}\"."
                 },
                 color = VColors.TextMutedAlt,
                 fontSize = 13.sp,
