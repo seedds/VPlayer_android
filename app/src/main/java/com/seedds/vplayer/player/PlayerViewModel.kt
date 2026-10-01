@@ -124,8 +124,12 @@ class PlayerViewModel(
     init {
         player.addListener(listener)
         viewModelScope.launch {
-            val fontSize = container.settingsStore.load().subtitleFontSize
-            _state.update { it.copy(subtitleFontSize = fontSize) }
+            container.settingsStore.load()
+            // Followed rather than read once: this view model lives as long as
+            // the activity, so a size changed in Settings must still reach it.
+            container.settingsStore.settings.collect { settings ->
+                _state.update { it.copy(subtitleFontSize = settings.subtitleFontSize) }
+            }
         }
         startTicker()
     }
@@ -134,6 +138,11 @@ class PlayerViewModel(
 
     fun open(videos: List<LibraryItem.Video>, index: Int) {
         queue = videos
+        // Every opening starts at 1.0x and unlocked. Neither is a setting, and
+        // this view model outlives the screen, so both would otherwise carry
+        // over. Next goes through play() instead and keeps the speed.
+        baseSpeed = 1f
+        _state.update { it.copy(playbackSpeed = 1f, boostSpeed = null, locked = false) }
         play(index)
     }
 
