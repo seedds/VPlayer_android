@@ -24,7 +24,7 @@ class ThumbnailCache(private val paths: LibraryPaths) {
     val maxHeight: Int get() = MAX_HEIGHT
 
     fun cacheKey(video: LibraryItem.Video): String =
-        sha1("${video.relativePath}|${video.size}|${video.modified}|$CAPTURE_SECONDS|$MAX_WIDTH|$MAX_HEIGHT")
+        sha1("${video.fingerprint}|$CAPTURE_SECONDS|$MAX_WIDTH|$MAX_HEIGHT")
 
     fun fileFor(video: LibraryItem.Video): File = File(paths.thumbnailsDir, "${cacheKey(video)}.jpg")
 

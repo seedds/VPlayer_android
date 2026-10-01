@@ -3,9 +3,11 @@ package com.seedds.vplayer.data.media
 import com.seedds.vplayer.data.model.LibraryItem
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.isActive
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.Collections
 
@@ -19,52 +21,82 @@ import java.util.Collections
  * cost a handful of recompositions rather than a hundred. And every file is
  * probed at most once per process, including files that failed, so a broken
  * video cannot be retried in a tight loop for as long as the app is open.
+ *
+ * Two passes share that budget. The folder pass covers what is on screen and
+ * the library pass sweeps everything else; each replaces only an earlier pass
+ * of its own kind, so opening a folder never cancels the background sweep.
  */
 class HydrationCoordinator(
     private val scope: CoroutineScope,
-    private val probe: MediaProbe,
+    private val probe: suspend (video: LibraryItem.Video, knownDuration: Double?) -> ProbeResult,
     private val thumbnailCache: ThumbnailCache,
     private val onResults: (List<ProbeResult>) -> Unit,
 ) {
     /**
-     * Identity of everything already probed this session: path, size and
-     * modified time, so a file replaced in place is probed again.
+     * Fingerprints of everything already probed this session, so a file
+     * replaced in place is probed again.
      */
     private val probedKeys = Collections.synchronizedSet(mutableSetOf<String>())
 
-    private var job: Job? = null
-
-    private fun keyOf(video: LibraryItem.Video) =
-        "${video.relativePath}|${video.size}|${video.modified}"
+    private var folderJob: Job? = null
+    private var libraryJob: Job? = null
 
     /** Cached thumbnails for videos already on screen, read without any decoding. */
     suspend fun cachedThumbnails(videos: List<LibraryItem.Video>): Map<String, File> =
         thumbnailCache.cachedAll(videos)
 
     /**
-     * Starts hydrating [videos], replacing any pass already running. The newest
-     * request wins because it describes what the user is looking at now.
+     * Hydrates the folder on screen, replacing any folder pass already running.
+     * The newest folder wins because it is what the user is looking at now.
      */
-    fun hydrate(videos: List<LibraryItem.Video>, knownDurations: Map<String, Double?>) {
-        job?.cancel()
-        val pending = videos.filter { probedKeys.add(keyOf(it)) }
-        if (pending.isEmpty()) return
+    fun hydrateFolder(videos: List<LibraryItem.Video>, knownDurations: Map<String, Double?>) {
+        folderJob?.cancel()
+        folderJob = scope.launch { probeAll(videos, knownDurations) }
+    }
 
-        job = scope.launch {
-            val batch = mutableListOf<ProbeResult>()
-            var lastFlush = System.currentTimeMillis()
+    /**
+     * Hydrates the whole library and then deletes cache files no video claims
+     * any more, replacing any library pass already running.
+     */
+    fun hydrateLibrary(allVideos: List<LibraryItem.Video>, knownDurations: Map<String, Double?>) {
+        libraryJob?.cancel()
+        libraryJob = scope.launch {
+            probeAll(allVideos, knownDurations)
+            // Only a sweep that ran to the end prunes. A cancelled one has been
+            // replaced by a sweep with a fresher listing, and pruning against
+            // the stale one could delete the thumbnail of a file added since.
+            currentCoroutineContext().ensureActive()
+            thumbnailCache.prune(allVideos)
+        }
+    }
 
-            for (video in pending) {
-                if (!currentCoroutineContext().isActive) {
-                    // Release the key so a later pass can pick this file up;
-                    // otherwise a cancelled probe would leave it unhydrated for
-                    // the rest of the session.
-                    probedKeys.remove(keyOf(video))
-                    break
+    fun cancel() {
+        folderJob?.cancel()
+        libraryJob?.cancel()
+        folderJob = null
+        libraryJob = null
+    }
+
+    private suspend fun probeAll(videos: List<LibraryItem.Video>, knownDurations: Map<String, Double?>) {
+        val batch = mutableListOf<ProbeResult>()
+        var lastFlush = System.currentTimeMillis()
+
+        try {
+            for (video in videos) {
+                currentCoroutineContext().ensureActive()
+                // Claimed when it comes up, not when the pass starts, so a pass
+                // cancelled part-way leaves the rest of its list for the next.
+                if (!probedKeys.add(video.fingerprint)) continue
+
+                // Once claimed, the probe runs to the end even if the pass is
+                // cancelled meanwhile. The decoder cannot be interrupted anyway,
+                // and abandoning it would leave the file claimed but never probed.
+                val knownDuration = knownDurations[video.relativePath]
+                val result = try {
+                    withContext(NonCancellable) { probe(video, knownDuration) }
+                } catch (e: Exception) {
+                    ProbeResult(video.relativePath, knownDuration, null)
                 }
-
-                val result = runCatching { probe.probe(video, knownDurations[video.relativePath]) }
-                    .getOrElse { ProbeResult(video.relativePath, knownDurations[video.relativePath], null) }
                 batch += result
 
                 val now = System.currentTimeMillis()
@@ -74,26 +106,11 @@ class HydrationCoordinator(
                     lastFlush = now
                 }
             }
-
-            if (batch.isNotEmpty() && currentCoroutineContext().isActive) onResults(batch.toList())
+        } finally {
+            // These files are claimed, so no later pass will report them; what
+            // was learned belongs on screen even when the pass was cut short.
+            if (batch.isNotEmpty()) onResults(batch.toList())
         }
-    }
-
-    /**
-     * Deletes cache files no video claims any more. Only safe once a full
-     * library walk has finished; running it against a partial list would delete
-     * thumbnails that are still in use.
-     */
-    fun pruneAfter(allVideos: List<LibraryItem.Video>) {
-        scope.launch {
-            job?.join()
-            if (currentCoroutineContext().isActive) thumbnailCache.prune(allVideos)
-        }
-    }
-
-    fun cancel() {
-        job?.cancel()
-        job = null
     }
 
     private companion object {

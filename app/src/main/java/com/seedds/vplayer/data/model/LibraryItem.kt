@@ -49,6 +49,13 @@ sealed interface LibraryItem {
         val extension: String,
     ) : LibraryItem {
         override val kind: LibraryKind get() = LibraryKind.Video
+
+        /**
+         * The file's identity for caching: path, size and modified time. A file
+         * replaced in place gets a new fingerprint, so its probe and thumbnail
+         * caches miss and are filled again.
+         */
+        val fingerprint: String get() = "$relativePath|$size|$modified"
     }
 
     data class Subtitle(

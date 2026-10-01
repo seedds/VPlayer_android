@@ -65,7 +65,7 @@ class LibraryViewModel(private val container: AppContainer) : ViewModel() {
 
     private val hydration = HydrationCoordinator(
         scope = viewModelScope,
-        probe = container.mediaProbe,
+        probe = container.mediaProbe::probe,
         thumbnailCache = container.thumbnailCache,
         onResults = ::applyProbeResults,
     )
@@ -116,10 +116,10 @@ class LibraryViewModel(private val container: AppContainer) : ViewModel() {
         videos: List<LibraryItem.Video>,
         playback: Map<String, com.seedds.vplayer.data.store.PlaybackEntry>,
     ) {
-        val key = videos.joinToString("\n") { "${'$'}{it.relativePath}|${'$'}{it.size}|${'$'}{it.modified}" }
+        val key = videos.joinToString("\n") { it.fingerprint }
         if (key == hydratedFolderKey) return
         hydratedFolderKey = key
-        hydration.hydrate(videos, playback.mapValues { (_, entry) -> entry.durationSeconds })
+        hydration.hydrateFolder(videos, playback.mapValues { (_, entry) -> entry.durationSeconds })
     }
 
     /**
@@ -152,13 +152,16 @@ class LibraryViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
-    /** A change made through the browser can touch anything, so sweep it all. */
+    /**
+     * Sweeps the whole library: once at startup so folders are ready before
+     * they are opened, and again after every change made through the browser,
+     * which can touch anything.
+     */
     fun hydrateWholeLibrary() {
         viewModelScope.launch {
             val videos = repository.listAllVideos()
             val playback = playbackStateStore.all()
-            hydration.hydrate(videos, playback.mapValues { (_, entry) -> entry.durationSeconds })
-            hydration.pruneAfter(videos)
+            hydration.hydrateLibrary(videos, playback.mapValues { (_, entry) -> entry.durationSeconds })
         }
     }
 
