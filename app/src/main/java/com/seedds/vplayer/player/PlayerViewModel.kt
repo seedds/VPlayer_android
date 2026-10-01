@@ -142,7 +142,7 @@ class PlayerViewModel(
         // this view model outlives the screen, so both would otherwise carry
         // over. Next goes through play() instead and keeps the speed.
         baseSpeed = 1f
-        _state.update { it.copy(playbackSpeed = 1f, boostSpeed = null, locked = false) }
+        _state.update { it.copy(playbackSpeed = 1f, locked = false) }
         play(index)
     }
 
@@ -163,6 +163,9 @@ class PlayerViewModel(
                 previewFrame = null,
                 positionSeconds = 0.0,
                 durationSeconds = 0.0,
+                // The rate is reset to the base below, so a hold boost still
+                // shown from the last video would claim a speed nothing plays.
+                boostSpeed = null,
             )
         }
 
