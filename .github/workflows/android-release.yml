@@ -28,6 +28,11 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          # The default also asks for the legacy "tools" package, which current
+          # cmdline-tools no longer ship, so sdkmanager fails. Gradle fetches the
+          # platform and build-tools it needs on its own.
+          packages: platform-tools
 
       - name: Compute release metadata
         id: release_meta
