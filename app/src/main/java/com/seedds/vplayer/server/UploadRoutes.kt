@@ -70,9 +70,6 @@ fun Application.uploadServerModule(deps: ServerDependencies) {
     routing {
         get("/") {
             call.guarded(deps) {
-                // No caching: the page embeds the concurrency setting, and a
-                // stale copy would silently ignore a change the user just made.
-                call.response.cacheControl(CacheControl.NoStore(null))
                 call.respondText(
                     text = deps.page.render(
                         chunkSize = UploadSessionManager.CHUNK_SIZE,
@@ -138,11 +135,12 @@ fun Application.uploadServerModule(deps: ServerDependencies) {
         post("/upload/complete") {
             call.guarded(deps) {
                 val uploadId = RequestFields.requireString(call.jsonBody(), "uploadId")
+                val fileName = deps.sessions.activeSessions().firstOrNull { it.uploadId == uploadId }?.fileName
                 val session = try {
                     deps.sessions.complete(uploadId)
                 } catch (error: Throwable) {
-                    val name = error.message ?: uploadId
-                    deps.onActivity(UploadStatus.Error, "Failed to save $name")
+                    // An unknown id names no file, and nothing was being saved.
+                    if (fileName != null) deps.onActivity(UploadStatus.Error, "Failed to save $fileName")
                     throw error
                 }
                 deps.onActivity(UploadStatus.Complete, "Saved ${session.relativePath}")
@@ -283,8 +281,13 @@ private suspend fun ServerDependencies.mutationResponse(
  * Runs a handler, turning any refusal into the shared 400 shape. A stale
  * session sweep runs first on every request, which is cheap and means a browser
  * tab that went away cannot hold an upload open indefinitely.
+ *
+ * Nothing is cacheable. The page embeds the concurrency setting and listings
+ * change under the browser, so a stored copy of either would silently show
+ * the user something that is no longer true.
  */
 private suspend fun ApplicationCall.guarded(deps: ServerDependencies, block: suspend () -> Unit) {
+    response.cacheControl(CacheControl.NoStore(null))
     try {
         val swept = deps.sessions.sweepStale()
         if (swept.isNotEmpty()) deps.onActivity(UploadStatus.Idle, "Cleaned up an inactive upload.")

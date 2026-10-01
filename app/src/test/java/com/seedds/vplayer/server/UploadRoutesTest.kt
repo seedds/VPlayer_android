@@ -144,6 +144,18 @@ class UploadRoutesTest {
     }
 
     @Test
+    fun `JSON responses are never cached, errors included`() = testApplication {
+        install()
+        val listing = client.get("/library/list")
+        assertEquals(HttpStatusCode.OK, listing.status)
+        assertEquals("no-store", listing.headers[HttpHeaders.CacheControl])
+
+        val refused = postJson("/upload/complete", """{"uploadId":"nope"}""")
+        assertEquals(HttpStatusCode.BadRequest, refused.status)
+        assertEquals("no-store", refused.headers[HttpHeaders.CacheControl])
+    }
+
+    @Test
     fun `an unknown route is a 404 with the shared error shape`() = testApplication {
         install()
         val response = client.get("/nope")
@@ -272,6 +284,17 @@ class UploadRoutesTest {
             LibraryErrors.UPLOAD_INCOMPLETE,
             postJson("/upload/complete", """{"uploadId":"$uploadId"}""").message(),
         )
+        assertEquals(UploadStatus.Error to "Failed to save a.mp4", events.last())
+    }
+
+    @Test
+    fun `completing an unknown upload reports no failed save`() = testApplication {
+        install()
+        assertEquals(
+            LibraryErrors.UPLOAD_SESSION_NOT_FOUND,
+            postJson("/upload/complete", """{"uploadId":"nope"}""").message(),
+        )
+        assertTrue(events.none { (status, _) -> status == UploadStatus.Error })
     }
 
     @Test
