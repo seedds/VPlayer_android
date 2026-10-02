@@ -39,6 +39,8 @@ data class PlayerUiState(
     val subtitleFontSize: Int = 36,
     val errorMessage: String? = null,
     val previewFrame: Bitmap? = null,
+    /** The open video was deleted or renamed from the browser, so the screen closes. */
+    val videoRemoved: Boolean = false,
 ) {
     /** What the time labels and the filled bar read from. */
     val displayedSeconds: Double get() = if (scrubbing) scrubSeconds else positionSeconds
@@ -151,7 +153,7 @@ class PlayerViewModel(
         // this view model outlives the screen, so both would otherwise carry
         // over. Next goes through play() instead and keeps the speed.
         baseSpeed = 1f
-        _state.update { it.copy(playbackSpeed = 1f, locked = false) }
+        _state.update { it.copy(playbackSpeed = 1f, locked = false, videoRemoved = false) }
         play(index)
     }
 
@@ -440,6 +442,26 @@ class PlayerViewModel(
      */
     fun onLeaving() {
         persistPosition(force = true)
+        releaseVideo()
+    }
+
+    /**
+     * The library changed from the browser. A video deleted or renamed while
+     * it is open closes the player, as spec B1 asks. Its position is not
+     * saved: a delete has just cleared its history, and a save would bring an
+     * entry for a file that no longer exists back.
+     */
+    fun onLibraryChanged() {
+        viewModelScope.launch {
+            val video = _state.value.video ?: return@launch
+            val present = withContext(Dispatchers.IO) { container.paths.fileFor(video.relativePath).isFile }
+            if (present || _state.value.video?.relativePath != video.relativePath) return@launch
+            releaseVideo()
+            _state.update { it.copy(videoRemoved = true) }
+        }
+    }
+
+    private fun releaseVideo() {
         clearPreview()
         container.mediaProbe.closePreview()
         player.pause()

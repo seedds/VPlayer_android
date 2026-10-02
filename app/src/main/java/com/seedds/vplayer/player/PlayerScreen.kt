@@ -88,6 +88,12 @@ fun PlayerScreen(
         onClose()
     }
 
+    // The video was deleted or renamed from the browser; the view model has
+    // already let it go, so all that is left is to close.
+    LaunchedEffect(state.videoRemoved) {
+        if (state.videoRemoved) onClose()
+    }
+
     Box(modifier = modifier.fillMaxSize().background(VColors.Player.Background)) {
         AndroidView(
             modifier = Modifier.fillMaxSize(),

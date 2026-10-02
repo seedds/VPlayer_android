@@ -61,12 +61,15 @@ fun AppScaffold(container: AppContainer) {
     val libraryViewModel: LibraryViewModel = viewModel(factory = factory)
     val settingsViewModel: SettingsViewModel = viewModel(factory = factory)
     val uploadViewModel: UploadViewModel = viewModel(factory = factory)
+    val playerViewModel: PlayerViewModel = viewModel(factory = factory)
 
     // The browser can add, rename or delete files at any time; refresh the
-    // library whenever the server says something changed.
+    // library whenever the server says something changed, and let the player
+    // check that its video is still there.
     DisposableEffect(container) {
         container.serverController.setLibraryChangedListener {
             libraryViewModel.onLibraryChangedElsewhere()
+            playerViewModel.onLibraryChanged()
         }
         onDispose { container.serverController.setLibraryChangedListener(null) }
     }
@@ -101,9 +104,8 @@ fun AppScaffold(container: AppContainer) {
     var overlay by remember { mutableStateOf<Overlay?>(null) }
     var pendingPlayback by remember { mutableStateOf<LibraryItem.Video?>(null) }
 
-    // Opening the player needs the view model, which is only created once the
-    // overlay is showing; hand it the queue as soon as both exist.
-    val playerViewModel: PlayerViewModel = viewModel(factory = factory)
+    // The player gets its queue before the overlay shows, so its first frame
+    // already has a video.
     LaunchedEffect(pendingPlayback) {
         val video = pendingPlayback ?: return@LaunchedEffect
         val videos = libraryViewModel.state.value.videos
