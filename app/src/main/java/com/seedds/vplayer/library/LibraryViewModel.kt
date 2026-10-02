@@ -9,6 +9,10 @@ import com.seedds.vplayer.data.media.HydrationCoordinator
 import com.seedds.vplayer.data.media.ProbeResult
 import com.seedds.vplayer.data.model.LibraryItem
 import com.seedds.vplayer.data.store.PlaybackEntry
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -88,8 +92,35 @@ class LibraryViewModel(private val container: AppContainer) : ViewModel() {
      */
     private val scrollPositions = mutableMapOf<String?, ScrollPosition>()
 
+    /**
+     * Changes made through the browser. They come in bursts (a batch of small
+     * files finishes several uploads a second), and each is answered by the
+     * same full refresh, so one waiting slot is enough.
+     */
+    private val externalChanges = MutableSharedFlow<Unit>(
+        extraBufferCapacity = 1,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+
+    private var libraryWalk: Job? = null
+
     init {
         refresh()
+        viewModelScope.launch {
+            // The first change is answered at once and the rest at most once
+            // per interval, so a burst of uploads costs a few walks of the
+            // library rather than one each.
+            externalChanges.collect {
+                refresh()
+                hydrateWholeLibrary()
+                delay(EXTERNAL_REFRESH_INTERVAL_MS)
+            }
+        }
+    }
+
+    /** The library was changed from outside the app's screens. Safe to call from any thread. */
+    fun onLibraryChangedElsewhere() {
+        externalChanges.tryEmit(Unit)
     }
 
     fun refresh(path: String? = _state.value.currentFolderPath) {
@@ -168,7 +199,10 @@ class LibraryViewModel(private val container: AppContainer) : ViewModel() {
      * which can touch anything.
      */
     fun hydrateWholeLibrary() {
-        viewModelScope.launch {
+        // A newer walk has the fresher listing; an older one still running
+        // would only hand the sweep a stale list after it.
+        libraryWalk?.cancel()
+        libraryWalk = viewModelScope.launch {
             val videos = repository.listAllVideos()
             val playback = playbackStateStore.all()
             hydration.hydrateLibrary(videos, playback.mapValues { (_, entry) -> entry.durationSeconds })
@@ -406,5 +440,10 @@ class LibraryViewModel(private val container: AppContainer) : ViewModel() {
     private fun forgetThumbnails(paths: List<String>) {
         if (paths.isEmpty()) return
         _state.update { it.copy(thumbnails = it.thumbnails - paths.toSet()) }
+    }
+
+    private companion object {
+        /** Quick enough that an upload still appears promptly, slow enough to absorb a burst. */
+        const val EXTERNAL_REFRESH_INTERVAL_MS = 1_000L
     }
 }

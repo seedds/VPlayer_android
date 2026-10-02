@@ -63,8 +63,7 @@ fun AppScaffold(container: AppContainer) {
     // library whenever the server says something changed.
     DisposableEffect(container) {
         container.serverController.setLibraryChangedListener {
-            libraryViewModel.refresh()
-            libraryViewModel.hydrateWholeLibrary()
+            libraryViewModel.onLibraryChangedElsewhere()
         }
         onDispose { container.serverController.setLibraryChangedListener(null) }
     }
