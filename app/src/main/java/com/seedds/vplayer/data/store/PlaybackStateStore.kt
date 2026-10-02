@@ -74,19 +74,29 @@ class PlaybackStateStore(
 
     /** Records a probed duration without marking the video as started. */
     suspend fun saveDuration(relativePath: String, durationSeconds: Double): PlaybackStateMap =
-        store.update { current ->
-            if (!durationSeconds.isFinite() || durationSeconds < 0.0) return@update null
-            val existing = current[relativePath]
-            if (existing?.durationSeconds == durationSeconds) return@update null
-            current + (
-                relativePath to PlaybackEntry(
-                    positionSeconds = existing?.positionSeconds ?: 0.0,
-                    durationSeconds = durationSeconds,
-                    hasStartedPlayback = existing?.hasStartedPlayback ?: false,
-                    updatedAt = now(),
-                )
-                )
+        saveDurations(mapOf(relativePath to durationSeconds))
+
+    /**
+     * Records many probed durations in one write. The file holds every video,
+     * so writing it once per probe during a library sweep would cost time
+     * proportional to the square of the library.
+     */
+    suspend fun saveDurations(durations: Map<String, Double>): PlaybackStateMap = store.update { current ->
+        val changed = durations.filter { (path, seconds) ->
+            seconds.isFinite() && seconds >= 0.0 && current[path]?.durationSeconds != seconds
         }
+        if (changed.isEmpty()) return@update null
+        val timestamp = now()
+        current + changed.mapValues { (path, seconds) ->
+            val existing = current[path]
+            PlaybackEntry(
+                positionSeconds = existing?.positionSeconds ?: 0.0,
+                durationSeconds = seconds,
+                hasStartedPlayback = existing?.hasStartedPlayback ?: false,
+                updatedAt = timestamp,
+            )
+        }
+    }
 
     /**
      * Resets progress for every video while keeping the probed durations, so

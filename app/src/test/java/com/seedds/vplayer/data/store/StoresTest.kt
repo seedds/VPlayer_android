@@ -89,6 +89,22 @@ class PlaybackStateStoreTest {
     }
 
     @Test
+    fun `a batch of durations is saved together, skipping unusable values`() = runTest {
+        val store = newStore()
+        store.savePosition("a.mp4", 10.0)
+        store.saveDurations(mapOf("a.mp4" to 100.0, "b.mp4" to 50.0, "c.mp4" to Double.NaN, "d.mp4" to -1.0))
+
+        val a = store.entry("a.mp4")!!
+        assertEquals(100.0, a.durationSeconds!!, 0.0)
+        assertEquals(10.0, a.positionSeconds, 0.0)
+        assertEquals(true, a.hasStartedPlayback)
+        assertEquals(false, store.entry("b.mp4")!!.hasStartedPlayback)
+        assertEquals(50.0, store.entry("b.mp4")!!.durationSeconds!!, 0.0)
+        assertNull(store.entry("c.mp4"))
+        assertNull(store.entry("d.mp4"))
+    }
+
+    @Test
     fun `a save without a usable duration keeps the probed one`() = runTest {
         val store = newStore()
         store.saveDuration("a.mp4", 100.0)

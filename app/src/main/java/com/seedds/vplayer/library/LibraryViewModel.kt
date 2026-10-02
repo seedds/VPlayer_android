@@ -74,6 +74,7 @@ class LibraryViewModel(private val container: AppContainer) : ViewModel() {
         scope = viewModelScope,
         probe = container.mediaProbe::probe,
         thumbnailCache = container.thumbnailCache,
+        saveDurations = playbackStateStore::saveDurations,
         onResults = ::applyProbeResults,
     )
 

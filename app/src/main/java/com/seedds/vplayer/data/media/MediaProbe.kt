@@ -5,7 +5,6 @@ import android.media.MediaMetadataRetriever
 import android.os.Build
 import com.seedds.vplayer.data.fs.LibraryPaths
 import com.seedds.vplayer.data.model.LibraryItem
-import com.seedds.vplayer.data.store.PlaybackStateStore
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -30,7 +29,6 @@ data class ProbeResult(
 class MediaProbe(
     private val paths: LibraryPaths,
     private val thumbnailCache: ThumbnailCache,
-    private val playbackStateStore: PlaybackStateStore,
 ) {
     private val probeDispatcher = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "vplayer-media-probe").apply { isDaemon = true }
@@ -39,6 +37,9 @@ class MediaProbe(
     /**
      * Probes one video, skipping the work entirely when the answer is already
      * known. Reopening an already-hydrated library should cost nothing.
+     *
+     * The thumbnail is cached here; the duration is only returned, and
+     * [HydrationCoordinator] saves a whole batch of them in one write.
      */
     suspend fun probe(video: LibraryItem.Video, knownDuration: Double?): ProbeResult {
         val cached = thumbnailCache.cached(video)
@@ -60,10 +61,6 @@ class MediaProbe(
                 val duration = withTimeoutOrNull(SOURCE_LOAD_TIMEOUT_MS) {
                     readDurationSeconds(retriever)
                 } ?: knownDuration
-
-                if (duration != null && duration >= 0.0) {
-                    playbackStateStore.saveDuration(video.relativePath, duration)
-                }
 
                 val thumbnail = cached ?: withTimeoutOrNull(THUMBNAIL_TIMEOUT_MS) {
                     generateThumbnail(retriever, video, duration)

@@ -30,6 +30,8 @@ class HydrationCoordinator(
     private val scope: CoroutineScope,
     private val probe: suspend (video: LibraryItem.Video, knownDuration: Double?) -> ProbeResult,
     private val thumbnailCache: ThumbnailCache,
+    /** Persists a batch's durations, keyed by relative path, in one write. */
+    private val saveDurations: suspend (Map<String, Double>) -> Unit,
     private val onResults: (List<ProbeResult>) -> Unit,
 ) {
     /**
@@ -101,16 +103,29 @@ class HydrationCoordinator(
 
                 val now = System.currentTimeMillis()
                 if (now - lastFlush >= FLUSH_INTERVAL_MS) {
-                    onResults(batch.toList())
+                    flush(batch.toList())
                     batch.clear()
                     lastFlush = now
                 }
             }
         } finally {
             // These files are claimed, so no later pass will report them; what
-            // was learned belongs on screen even when the pass was cut short.
-            if (batch.isNotEmpty()) onResults(batch.toList())
+            // was learned belongs on disk and on screen even when the pass was
+            // cut short.
+            if (batch.isNotEmpty()) flush(batch.toList())
         }
+    }
+
+    private suspend fun flush(batch: List<ProbeResult>) {
+        val durations = batch.mapNotNull { result ->
+            result.durationSeconds?.let { result.relativePath to it }
+        }.toMap()
+        if (durations.isNotEmpty()) {
+            // A failed save only means the file is probed again next launch,
+            // which is no reason to keep its results off the screen now.
+            withContext(NonCancellable) { runCatching { saveDurations(durations) } }
+        }
+        onResults(batch)
     }
 
     private companion object {

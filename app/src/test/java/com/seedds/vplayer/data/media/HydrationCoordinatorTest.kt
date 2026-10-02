@@ -26,6 +26,9 @@ class HydrationCoordinatorTest {
     /** Everything handed to the screen. */
     private val reported = mutableListOf<ProbeResult>()
 
+    /** Each batch of durations written to the playback store. */
+    private val savedBatches = mutableListOf<Map<String, Double>>()
+
     /** Probes of these paths wait here until the test lets them finish. */
     private val gates = mutableMapOf<String, CompletableDeferred<Unit>>()
 
@@ -57,6 +60,7 @@ class HydrationCoordinatorTest {
             ProbeResult(video.relativePath, knownDuration ?: 60.0, null)
         },
         thumbnailCache = thumbnailCache,
+        saveDurations = { savedBatches += it },
         onResults = { reported += it },
     )
 
@@ -94,6 +98,18 @@ class HydrationCoordinatorTest {
         // "b" is listed by both passes and probed by whichever reached it first.
         assertEquals(listOf("a.mp4", "b.mp4", "c.mp4"), probed.sorted())
         assertEquals(listOf("a.mp4", "b.mp4", "c.mp4"), reported.map(ProbeResult::relativePath).sorted())
+    }
+
+    @Test
+    fun `a batch's durations are saved in one write`() = runTest {
+        val hydration = coordinator()
+
+        hydration.hydrateFolder(listOf(video("a.mp4"), video("b.mp4"), video("c.mp4")), mapOf("b.mp4" to 42.0))
+        advanceUntilIdle()
+
+        // The fake probes finish well inside one flush interval.
+        assertEquals(listOf(mapOf("a.mp4" to 60.0, "b.mp4" to 42.0, "c.mp4" to 60.0)), savedBatches)
+        assertEquals(3, reported.size)
     }
 
     @Test

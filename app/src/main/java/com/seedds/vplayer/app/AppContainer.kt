@@ -37,7 +37,7 @@ class AppContainer(private val appContext: Context) {
 
     val libraryArtifacts = LibraryArtifacts(playbackStateStore, thumbnailCache)
 
-    val mediaProbe = MediaProbe(paths, thumbnailCache, playbackStateStore)
+    val mediaProbe = MediaProbe(paths, thumbnailCache)
 
     val lanAddressMonitor = LanAddressMonitor(appContext)
 
