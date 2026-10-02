@@ -107,7 +107,7 @@ fun FolderPickerSheet(
                     enabled = canMoveHere,
                     cornerRadius = 12.dp,
                     fontSize = 14.sp,
-                    modifier = Modifier.alpha(if (canMoveHere) 1f else 0.4f),
+                    disabledAlpha = 0.4f,
                 )
             }
             HorizontalDivider(thickness = 1.dp, color = VColors.DividerTabBar)

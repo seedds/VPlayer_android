@@ -77,7 +77,9 @@ enum class ButtonTone { Primary, Secondary, Danger, Accent }
 
 /**
  * The app's button. Pressed and disabled both dim the button rather than
- * recoloring it, which is how the original React Native styles behaved.
+ * recoloring it, which is how the original React Native styles behaved. The
+ * spec gives some screens their own amounts: the Upload tab dims both to 0.76,
+ * and the move sheet's "Move Here" disables to 0.4.
  */
 @Composable
 fun VButton(
@@ -91,6 +93,8 @@ fun VButton(
     verticalPadding: androidx.compose.ui.unit.Dp = 10.dp,
     fontSize: androidx.compose.ui.unit.TextUnit = 13.sp,
     cornerRadius: androidx.compose.ui.unit.Dp = 14.dp,
+    pressedAlpha: Float = 0.78f,
+    disabledAlpha: Float = 0.5f,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
@@ -109,7 +113,13 @@ fun VButton(
     Box(
         modifier = modifier
             .widthIn(min = minWidth)
-            .alpha(if (!enabled || pressed) 0.78f else 1f)
+            .alpha(
+                when {
+                    !enabled -> disabledAlpha
+                    pressed -> pressedAlpha
+                    else -> 1f
+                },
+            )
             .clip(RoundedCornerShape(cornerRadius))
             .background(background)
             .clickable(

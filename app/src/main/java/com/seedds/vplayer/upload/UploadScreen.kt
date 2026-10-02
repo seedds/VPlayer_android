@@ -128,6 +128,8 @@ fun UploadScreen(viewModel: UploadViewModel, modifier: Modifier = Modifier) {
                         verticalPadding = 13.dp,
                         fontSize = 14.sp,
                         cornerRadius = 16.dp,
+                        pressedAlpha = 0.76f,
+                        disabledAlpha = 0.76f,
                     )
                     VButton(
                         label = "Stop",
@@ -139,6 +141,8 @@ fun UploadScreen(viewModel: UploadViewModel, modifier: Modifier = Modifier) {
                         verticalPadding = 13.dp,
                         fontSize = 14.sp,
                         cornerRadius = 16.dp,
+                        pressedAlpha = 0.76f,
+                        disabledAlpha = 0.76f,
                     )
                 }
             }
