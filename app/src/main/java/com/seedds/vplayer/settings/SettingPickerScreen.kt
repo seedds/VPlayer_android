@@ -9,10 +9,13 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -43,7 +46,14 @@ fun SettingPickerScreen(
     // A stacked screen: system back returns to Settings like the back label.
     BackHandler(onBack = onBack)
 
-    Column(modifier = modifier.fillMaxSize().background(VColors.Background)) {
+    // Drawn over the tabs rather than inside their Scaffold, so it keeps
+    // itself clear of the status bar and cutout.
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .background(VColors.Background)
+            .windowInsetsPadding(WindowInsets.safeDrawing),
+    ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
