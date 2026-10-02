@@ -3,10 +3,12 @@ package com.seedds.vplayer.app
 import android.Manifest
 import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
+import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
@@ -34,7 +36,11 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        // The palette is light-only, so the bar icons stay dark even when the
+        // system is in dark mode; left to follow it they turn white and vanish
+        // against the cream background.
+        val lightBars = SystemBarStyle.auto(Color.TRANSPARENT, Color.TRANSPARENT) { false }
+        enableEdgeToEdge(statusBarStyle = lightBars, navigationBarStyle = lightBars)
         applyDefaultOrientation()
 
         setContent {
