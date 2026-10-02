@@ -18,6 +18,10 @@ import java.io.File
  * value rather than throwing, because the library itself is the real data and
  * losing progress is annoying, not fatal.
  *
+ * Callers are often on the main thread, and the playback map grows with the
+ * library, so everything past the in-memory read (decoding, the caller's
+ * transform, encoding and the write) runs on [Dispatchers.IO].
+ *
  * @param normalize applied to whatever was loaded, so callers always see a
  *   valid value even if the file was hand-edited or written by an older build.
  */
@@ -35,7 +39,7 @@ class JsonFileStore<T>(
 
     suspend fun read(): T {
         cached?.let { return it }
-        return mutex.withLock { loadLocked() }
+        return withContext(Dispatchers.IO) { mutex.withLock { loadLocked() } }
     }
 
     /**
@@ -43,17 +47,21 @@ class JsonFileStore<T>(
      * Returning null from [transform] means "nothing changed", and skips the
      * write entirely.
      */
-    suspend fun update(transform: (T) -> T?): T = mutex.withLock {
-        val current = loadLocked()
-        val next = transform(current) ?: return@withLock current
-        writeLocked(next)
-        next
+    suspend fun update(transform: (T) -> T?): T = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val current = loadLocked()
+            val next = transform(current) ?: return@withLock current
+            writeLocked(next)
+            next
+        }
     }
 
     /** Replaces the value unconditionally. */
-    suspend fun write(value: T): T = mutex.withLock {
-        writeLocked(value)
-        value
+    suspend fun write(value: T): T = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            writeLocked(value)
+            value
+        }
     }
 
     /** Drops the in-memory copy; the next read goes back to disk. */
@@ -61,38 +69,34 @@ class JsonFileStore<T>(
         cached = null
     }
 
-    private suspend fun loadLocked(): T {
+    private fun loadLocked(): T {
         cached?.let { return it }
-        val loaded = withContext(Dispatchers.IO) {
-            runCatching {
-                if (!file.exists()) return@runCatching defaultValue()
-                val text = file.readText()
-                if (text.isBlank()) defaultValue() else json.decodeFromString(serializer, text)
-            }.getOrElse { defaultValue() }
-        }
+        val loaded = runCatching {
+            if (!file.exists()) return@runCatching defaultValue()
+            val text = file.readText()
+            if (text.isBlank()) defaultValue() else json.decodeFromString(serializer, text)
+        }.getOrElse { defaultValue() }
         val normalized = normalize(loaded)
         cached = normalized
         return normalized
     }
 
-    private suspend fun writeLocked(value: T) {
+    private fun writeLocked(value: T) {
         cached = value
         val text = json.encodeToString(serializer, value)
-        withContext(Dispatchers.IO) {
-            file.parentFile?.mkdirs()
-            val temp = File(file.parentFile, "${file.name}.tmp")
-            temp.outputStream().use { stream ->
-                stream.write(text.toByteArray(Charsets.UTF_8))
-                stream.fd.sync()
-            }
+        file.parentFile?.mkdirs()
+        val temp = File(file.parentFile, "${file.name}.tmp")
+        temp.outputStream().use { stream ->
+            stream.write(text.toByteArray(Charsets.UTF_8))
+            stream.fd.sync()
+        }
+        if (!temp.renameTo(file)) {
+            // renameTo refuses to clobber on some filesystems; fall back to
+            // replacing the target explicitly.
+            file.delete()
             if (!temp.renameTo(file)) {
-                // renameTo refuses to clobber on some filesystems; fall back to
-                // replacing the target explicitly.
-                file.delete()
-                if (!temp.renameTo(file)) {
-                    temp.copyTo(file, overwrite = true)
-                    temp.delete()
-                }
+                temp.copyTo(file, overwrite = true)
+                temp.delete()
             }
         }
     }
