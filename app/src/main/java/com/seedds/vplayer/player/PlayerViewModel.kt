@@ -112,7 +112,10 @@ class PlayerViewModel(
                     _state.update { it.copy(errorMessage = null) }
                     applyPendingResume()
                 }
-                Player.STATE_ENDED -> onPlaybackEnded()
+                // Emptying the playlist, which leaving the player does, also
+                // reports ENDED. Only a video that played to its end should
+                // save its end position and move on to the next one.
+                Player.STATE_ENDED -> if (player.mediaItemCount > 0) onPlaybackEnded()
             }
         }
 
