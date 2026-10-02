@@ -75,7 +75,7 @@ class ThumbnailCache(private val paths: LibraryPaths) {
     private fun sha1(value: String): String =
         MessageDigest.getInstance("SHA-1")
             .digest(value.toByteArray(Charsets.UTF_8))
-            .joinToString("") { "%02x".format(it) }
+            .toHexString()
 
     companion object {
         /**
