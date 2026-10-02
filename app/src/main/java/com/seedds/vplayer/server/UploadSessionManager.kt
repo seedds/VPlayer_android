@@ -150,6 +150,10 @@ class UploadSessionManager(
             if (destination.exists() && !destination.delete()) {
                 throw LibraryException(LibraryErrors.COULD_NOT_MOVE)
             }
+            // Flushed once here rather than after every chunk: a partial upload
+            // is thrown away anyway, so only the finished file needs to survive
+            // a power cut, and a flush per chunk held up every next chunk.
+            java.io.FileOutputStream(session.tempFile, true).use { it.fd.sync() }
             if (!session.tempFile.renameTo(destination)) {
                 session.tempFile.copyTo(destination, overwrite = true)
                 session.tempFile.delete()
@@ -208,7 +212,6 @@ class UploadSessionManager(
                 if (written > remaining) throw ChunkTooLargeException()
                 output.write(buffer, 0, read)
             }
-            output.fd.sync()
         }
         return written
     }
