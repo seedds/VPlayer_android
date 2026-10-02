@@ -11,6 +11,7 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import com.seedds.vplayer.app.AppContainer
 import com.seedds.vplayer.data.model.LibraryItem
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -18,6 +19,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -202,9 +204,12 @@ class PlayerViewModel(
 
     private suspend fun loadSubtitles(video: LibraryItem.Video) {
         val subtitle = container.libraryRepository.findMatchingSubtitle(video) ?: return
-        val parsed = runCatching {
-            container.paths.fileFor(subtitle.relativePath).readText()
-        }.mapCatching(SrtParser::parse).getOrElse { emptyList() }
+        val file = container.paths.fileFor(subtitle.relativePath)
+        // A film's worth of cues takes long enough to read and parse that doing
+        // it on the main thread stutters the video as it starts.
+        val parsed = withContext(Dispatchers.IO) {
+            runCatching { file.readText() }.mapCatching(SrtParser::parse).getOrElse { emptyList() }
+        }
 
         if (_state.value.video?.relativePath != video.relativePath) return
         cues = parsed
