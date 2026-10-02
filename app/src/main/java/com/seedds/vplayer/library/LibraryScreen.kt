@@ -15,11 +15,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -50,7 +51,22 @@ fun LibraryScreen(
     modifier: Modifier = Modifier,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    val listState = rememberLazyListState()
+
+    // One list state per folder, starting where that folder was last left, and
+    // handed back to the view model when the folder changes or the screen goes.
+    val folderPath = state.currentFolderPath
+    val listState = remember(folderPath) {
+        val saved = viewModel.scrollPosition(folderPath)
+        LazyListState(saved.index, saved.offset)
+    }
+    DisposableEffect(listState) {
+        onDispose {
+            viewModel.saveScrollPosition(
+                folderPath,
+                ScrollPosition(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset),
+            )
+        }
+    }
 
     // At most one row shows its actions at a time, and scrolling puts it away:
     // an open row left behind while the user moves on is just a trap.

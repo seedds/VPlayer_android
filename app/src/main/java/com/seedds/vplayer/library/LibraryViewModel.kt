@@ -44,6 +44,9 @@ data class LibraryUiState(
     val videos: List<LibraryItem.Video> get() = items.filterIsInstance<LibraryItem.Video>()
 }
 
+/** Where a folder's list was left: its first visible row and how far into that row. */
+data class ScrollPosition(val index: Int = 0, val offset: Int = 0)
+
 class LibraryViewModel(private val container: AppContainer) : ViewModel() {
 
     private val repository = container.libraryRepository
@@ -77,6 +80,13 @@ class LibraryViewModel(private val container: AppContainer) : ViewModel() {
      * time the user switched tabs.
      */
     private var hydratedFolderKey: String? = null
+
+    /**
+     * Where each folder's list was left. The screen is torn down whenever the
+     * player, a setting picker or another tab covers it, so without this every
+     * return from a video landed back at the top of a long folder.
+     */
+    private val scrollPositions = mutableMapOf<String?, ScrollPosition>()
 
     init {
         refresh()
@@ -168,6 +178,12 @@ class LibraryViewModel(private val container: AppContainer) : ViewModel() {
     override fun onCleared() {
         hydration.cancel()
         super.onCleared()
+    }
+
+    fun scrollPosition(folderPath: String?): ScrollPosition = scrollPositions[folderPath] ?: ScrollPosition()
+
+    fun saveScrollPosition(folderPath: String?, position: ScrollPosition) {
+        scrollPositions[folderPath] = position
     }
 
     fun openFolder(relativePath: String) {
