@@ -21,10 +21,14 @@ data class ProbeResult(
 /**
  * Reads durations and cover frames out of video files.
  *
- * Every call runs on a single dedicated thread. [MediaMetadataRetriever] is not
- * thread-safe and its calls cannot be interrupted, so serialising them keeps a
- * slow or broken file from corrupting another probe, and keeps decoding off the
- * threads that draw the library.
+ * Library probes run one at a time on a dedicated thread.
+ * [MediaMetadataRetriever] is not thread-safe and its calls cannot be
+ * interrupted, so serialising them keeps a slow or broken file from corrupting
+ * another probe, and keeps decoding off the threads that draw the library.
+ *
+ * Scrub previews get a thread of their own, so a frame never waits behind a
+ * library probe that can take seconds, and they keep the file being scrubbed
+ * open between frames, because opening it is most of the cost of a frame.
  */
 class MediaProbe(
     private val paths: LibraryPaths,
@@ -33,6 +37,15 @@ class MediaProbe(
     private val probeDispatcher = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "vplayer-media-probe").apply { isDaemon = true }
     }.asCoroutineDispatcher()
+
+    private val previewExecutor = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "vplayer-scrub-preview").apply { isDaemon = true }
+    }
+    private val previewDispatcher = previewExecutor.asCoroutineDispatcher()
+
+    // Touched only on the preview thread.
+    private var previewRetriever: MediaMetadataRetriever? = null
+    private var previewPath: String? = null
 
     /**
      * Probes one video, skipping the work entirely when the answer is already
@@ -73,17 +86,39 @@ class MediaProbe(
         }
     }
 
-    /** A single frame for the scrub preview, taken from an already-open file. */
+    /**
+     * A single frame for the scrub preview. The file stays open for the next
+     * frame until another file is previewed or [closePreview] is called.
+     */
     suspend fun previewFrame(file: File, positionSeconds: Double, width: Int, height: Int): Bitmap? =
-        withContext(probeDispatcher) {
-            val retriever = MediaMetadataRetriever()
-            try {
-                runCatching { retriever.setDataSource(file.absolutePath) }.getOrElse { return@withContext null }
-                frameAt(retriever, positionSeconds, width, height)
-            } finally {
-                releaseQuietly(retriever)
-            }
+        withContext(previewDispatcher) {
+            val retriever = openPreview(file) ?: return@withContext null
+            frameAt(retriever, positionSeconds, width, height)
         }
+
+    /** Lets go of the file kept open for previews. Safe from any thread, and when nothing is open. */
+    fun closePreview() {
+        previewExecutor.execute { releasePreview() }
+    }
+
+    private fun openPreview(file: File): MediaMetadataRetriever? {
+        if (previewPath == file.absolutePath) return previewRetriever
+        releasePreview()
+        val retriever = MediaMetadataRetriever()
+        if (runCatching { retriever.setDataSource(file.absolutePath) }.isFailure) {
+            releaseQuietly(retriever)
+            return null
+        }
+        previewRetriever = retriever
+        previewPath = file.absolutePath
+        return retriever
+    }
+
+    private fun releasePreview() {
+        previewRetriever?.let(::releaseQuietly)
+        previewRetriever = null
+        previewPath = null
+    }
 
     private fun readDurationSeconds(retriever: MediaMetadataRetriever): Double? =
         retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)

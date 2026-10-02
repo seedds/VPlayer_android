@@ -83,6 +83,10 @@ class PlayerViewModel(
     private var autoHideJob: Job? = null
     private var previewJob: Job? = null
 
+    /** The newest position asked for while a frame is being made. */
+    private var pendingPreviewSeconds: Double? = null
+    private var lastPreviewedSeconds: Double? = null
+
     /** The base rate the speed control shows, kept apart from a live hold boost. */
     private var baseSpeed: Float = 1f
 
@@ -154,6 +158,7 @@ class PlayerViewModel(
         lastPersistedSeconds = 0.0
         interrupted = false
         cues = emptyList()
+        clearPreview()
 
         _state.update {
             it.copy(
@@ -354,6 +359,7 @@ class PlayerViewModel(
     // -------------------------------------------------------------- scrubbing
 
     fun beginScrub(seconds: Double) {
+        clearPreview()
         autoHideJob?.cancel()
         _state.update { it.copy(scrubbing = true, scrubSeconds = seconds, controlsVisible = true) }
         requestPreview(seconds)
@@ -374,27 +380,37 @@ class PlayerViewModel(
     }
 
     /**
-     * Only the newest requested position matters, so an in-flight extraction is
-     * abandoned as soon as the finger moves on rather than queueing up frames
-     * nobody will see.
+     * One frame is made at a time, and only the newest position waits behind
+     * it; anything the finger passed over meanwhile is skipped. Cancelling the
+     * frame in flight on every movement instead meant a steady drag never let
+     * one finish.
      */
     private fun requestPreview(seconds: Double) {
         val video = _state.value.video ?: return
-        previewJob?.cancel()
+        val last = lastPreviewedSeconds
+        if (last != null && abs(seconds - last) <= PREVIEW_DEDUPE_SECONDS) return
+        pendingPreviewSeconds = seconds
+        if (previewJob?.isActive == true) return
+
         previewJob = viewModelScope.launch {
-            val frame = container.mediaProbe.previewFrame(
-                file = container.paths.fileFor(video.relativePath),
-                positionSeconds = seconds,
-                width = PREVIEW_WIDTH,
-                height = PREVIEW_HEIGHT,
-            )
-            if (_state.value.scrubbing) _state.update { it.copy(previewFrame = frame) }
+            val file = container.paths.fileFor(video.relativePath)
+            while (true) {
+                val target = pendingPreviewSeconds ?: break
+                pendingPreviewSeconds = null
+                lastPreviewedSeconds = target
+                val frame = container.mediaProbe.previewFrame(file, target, PREVIEW_WIDTH, PREVIEW_HEIGHT)
+                // A frame that failed hides the popup rather than leaving an
+                // older one up.
+                if (_state.value.scrubbing) _state.update { it.copy(previewFrame = frame) }
+            }
         }
     }
 
     private fun clearPreview() {
         previewJob?.cancel()
         previewJob = null
+        pendingPreviewSeconds = null
+        lastPreviewedSeconds = null
         _state.update { it.copy(previewFrame = null) }
     }
 
@@ -421,6 +437,8 @@ class PlayerViewModel(
      */
     fun onLeaving() {
         persistPosition(force = true)
+        clearPreview()
+        container.mediaProbe.closePreview()
         player.pause()
         player.clearMediaItems()
         _state.update { it.copy(video = null, subtitleText = null, previewFrame = null) }
@@ -432,6 +450,7 @@ class PlayerViewModel(
         ticker?.cancel()
         autoHideJob?.cancel()
         previewJob?.cancel()
+        container.mediaProbe.closePreview()
         player.removeListener(listener)
         player.release()
         super.onCleared()
@@ -447,6 +466,9 @@ class PlayerViewModel(
         const val SPEED_STEP = 0.1f
         const val PREVIEW_WIDTH = 320
         const val PREVIEW_HEIGHT = 180
+
+        /** Closer than this to the last frame and the popup would show the same picture. */
+        const val PREVIEW_DEDUPE_SECONDS = 0.05
 
         fun clampSpeed(value: Float): Float =
             ((value * 10).roundToInt() / 10f).coerceIn(MIN_SPEED, MAX_SPEED)
