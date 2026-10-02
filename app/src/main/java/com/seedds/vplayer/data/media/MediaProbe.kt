@@ -5,6 +5,7 @@ import android.media.MediaMetadataRetriever
 import android.os.Build
 import com.seedds.vplayer.data.fs.LibraryPaths
 import com.seedds.vplayer.data.model.LibraryItem
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -21,10 +22,11 @@ data class ProbeResult(
 /**
  * Reads durations and cover frames out of video files.
  *
- * Library probes run one at a time on a dedicated thread.
- * [MediaMetadataRetriever] is not thread-safe and its calls cannot be
- * interrupted, so serialising them keeps a slow or broken file from corrupting
- * another probe, and keeps decoding off the threads that draw the library.
+ * Library probes run one at a time, each on a worker thread the caller waits
+ * on with a timeout. [MediaMetadataRetriever] calls cannot be interrupted, so
+ * a file that hangs is abandoned rather than waited out: the queue moves on,
+ * and the worker releases its retriever whenever the call finally returns.
+ * Decoding stays off the threads that draw the library either way.
  *
  * Scrub previews get a thread of their own, so a frame never waits behind a
  * library probe that can take seconds, and they keep the file being scrubbed
@@ -34,9 +36,13 @@ class MediaProbe(
     private val paths: LibraryPaths,
     private val thumbnailCache: ThumbnailCache,
 ) {
-    private val probeDispatcher = Executors.newSingleThreadExecutor { runnable ->
+    /**
+     * Probe workers. Only one is busy at a time unless an abandoned probe is
+     * still stuck in the platform, which is the only reason to add a thread.
+     */
+    private val probeExecutor = Executors.newCachedThreadPool { runnable ->
         Thread(runnable, "vplayer-media-probe").apply { isDaemon = true }
-    }.asCoroutineDispatcher()
+    }
 
     private val previewExecutor = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "vplayer-scrub-preview").apply { isDaemon = true }
@@ -60,28 +66,55 @@ class MediaProbe(
             return ProbeResult(video.relativePath, knownDuration, cached)
         }
 
-        return withContext(probeDispatcher) {
-            val file = paths.fileFor(video.relativePath)
-            if (!file.exists()) return@withContext ProbeResult(video.relativePath, knownDuration, cached)
+        val task = ProbeTask(paths.fileFor(video.relativePath), video, knownDuration, wantsThumbnail = cached == null)
+        probeExecutor.execute(task)
 
+        // A file that cannot be opened in time, or at all, is not worth waiting
+        // on for either value; report what we already had and move on.
+        val opened = withTimeoutOrNull(SOURCE_LOAD_TIMEOUT_MS) { task.opened.await() }
+        if (opened == null) {
+            task.abandoned = true
+            return ProbeResult(video.relativePath, knownDuration, cached)
+        }
+
+        val duration = opened.durationSeconds ?: knownDuration
+        val thumbnail = cached ?: withTimeoutOrNull(THUMBNAIL_TIMEOUT_MS) { task.thumbnail.await() }
+        return ProbeResult(video.relativePath, duration, thumbnail)
+    }
+
+    /** What opening a file told us. */
+    private class Opened(val durationSeconds: Double?)
+
+    /** One probe's platform calls, start to finish on a worker thread. */
+    private inner class ProbeTask(
+        private val file: File,
+        private val video: LibraryItem.Video,
+        private val knownDuration: Double?,
+        private val wantsThumbnail: Boolean,
+    ) : Runnable {
+        /** Completes with null when the file could not be opened. */
+        val opened = CompletableDeferred<Opened?>()
+        val thumbnail = CompletableDeferred<File?>()
+
+        /** Set once the caller stops waiting, so a late open skips the thumbnail. */
+        @Volatile
+        var abandoned = false
+
+        override fun run() {
             val retriever = MediaMetadataRetriever()
             try {
-                // A file the framework cannot open at all is not worth retrying
-                // for either value; report what we already had and move on.
-                runCatching { retriever.setDataSource(file.absolutePath) }
-                    .onFailure { return@withContext ProbeResult(video.relativePath, knownDuration, cached) }
-
-                val duration = withTimeoutOrNull(SOURCE_LOAD_TIMEOUT_MS) {
-                    readDurationSeconds(retriever)
-                } ?: knownDuration
-
-                val thumbnail = cached ?: withTimeoutOrNull(THUMBNAIL_TIMEOUT_MS) {
-                    generateThumbnail(retriever, video, duration)
+                retriever.setDataSource(file.absolutePath)
+                val duration = readDurationSeconds(retriever)
+                opened.complete(Opened(duration))
+                if (wantsThumbnail && !abandoned) {
+                    thumbnail.complete(generateThumbnail(retriever, video, duration ?: knownDuration))
                 }
-
-                ProbeResult(video.relativePath, duration, thumbnail)
+            } catch (e: Exception) {
+                // A missing or unreadable file; the deferreds below report it.
             } finally {
-                releaseQuietly(retriever)
+                opened.complete(null)
+                thumbnail.complete(null)
+                runCatching { retriever.release() }
             }
         }
     }
@@ -197,8 +230,8 @@ class MediaProbe(
     }
 
     /**
-     * Released off the probe thread: release() can block on a decoder that has
-     * wedged, and the queue behind it should not wait for that.
+     * Released off the preview thread: release() can block on a decoder that
+     * has wedged, and the next frame should not wait for that.
      */
     private fun releaseQuietly(retriever: MediaMetadataRetriever) {
         Thread { runCatching { retriever.release() } }
