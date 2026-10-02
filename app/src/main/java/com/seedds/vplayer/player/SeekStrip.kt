@@ -3,8 +3,8 @@ package com.seedds.vplayer.player
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -14,10 +14,10 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.systemGestureExclusion
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -27,6 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -59,7 +60,6 @@ fun SeekStrip(
     modifier: Modifier = Modifier,
 ) {
     var widthPx by remember { mutableIntStateOf(1) }
-    var scrubPx by remember { mutableFloatStateOf(0f) }
     val currentDuration by rememberUpdatedState(durationSeconds)
 
     fun timeAt(x: Float): Double {
@@ -71,27 +71,30 @@ fun SeekStrip(
         modifier = modifier
             .fillMaxWidth()
             .height(STRIP_HEIGHT)
+            // The strip runs edge to edge, so with gesture navigation a scrub
+            // starting at the left end would otherwise be taken as Back.
+            .systemGestureExclusion()
             .background(VColors.Player.SeekTrack)
             .onSizeChanged { widthPx = it.width.coerceAtLeast(1) }
             .pointerInput(Unit) {
-                detectDragGestures(
-                    onDragStart = { offset ->
-                        scrubPx = offset.x
-                        onScrubStart(timeAt(scrubPx))
-                    },
-                    onDrag = { change, dragAmount ->
+                // As spec B4 has it: the playhead jumps to the finger on
+                // touch-down, follows it, and the seek commits on release. A
+                // tap is a scrub that never moved.
+                awaitEachGesture {
+                    val down = awaitFirstDown()
+                    down.consume()
+                    var x = down.position.x
+                    onScrubStart(timeAt(x))
+                    while (true) {
+                        val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: break
+                        if (!change.pressed) break
+                        if (change.positionChanged()) {
+                            x = change.position.x
+                            onScrubUpdate(timeAt(x))
+                        }
                         change.consume()
-                        scrubPx = (scrubPx + dragAmount.x).coerceIn(0f, widthPx.toFloat())
-                        onScrubUpdate(timeAt(scrubPx))
-                    },
-                    onDragEnd = { onScrubCommit(timeAt(scrubPx)) },
-                    onDragCancel = { onScrubCommit(timeAt(scrubPx)) },
-                )
-            }
-            .pointerInput(Unit) {
-                // A plain tap on the strip should seek too, not just a drag.
-                detectTapGestures { offset ->
-                    onScrubCommit(timeAt(offset.x))
+                    }
+                    onScrubCommit(timeAt(x))
                 }
             },
     ) {
