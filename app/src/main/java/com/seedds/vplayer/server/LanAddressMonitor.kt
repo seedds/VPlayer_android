@@ -6,12 +6,17 @@ import android.net.LinkProperties
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.launch
 import java.net.Inet4Address
 import java.net.NetworkInterface
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Publishes the phone's address on the local network, or null when there isn't
@@ -27,8 +32,12 @@ class LanAddressMonitor(context: Context) {
         context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
 
     fun addresses(): Flow<String?> = callbackFlow {
+        val latest = AtomicReference<String?>(null)
+
         fun publish() {
-            trySend(currentAddress())
+            val address = currentAddress()
+            latest.set(address)
+            trySend(address)
         }
 
         val callback = object : ConnectivityManager.NetworkCallback() {
@@ -46,8 +55,18 @@ class LanAddressMonitor(context: Context) {
         publish()
         runCatching { connectivityManager.registerNetworkCallback(request, callback) }
 
+        // Not every change raises a callback: this phone starting a hotspot
+        // adds an address that no network request covers. So while there is
+        // no address, look again every couple of seconds.
+        launch {
+            while (true) {
+                delay(UNKNOWN_ADDRESS_POLL_MS)
+                if (latest.get() == null) publish()
+            }
+        }
+
         awaitClose { runCatching { connectivityManager.unregisterNetworkCallback(callback) } }
-    }.distinctUntilChanged()
+    }.flowOn(Dispatchers.IO).distinctUntilChanged()
 
     /** The current LAN address, or null while there is nothing usable. */
     fun currentAddress(): String? = fromActiveNetwork() ?: fromHotspotInterfaces()
@@ -89,5 +108,7 @@ class LanAddressMonitor(context: Context) {
 
     private companion object {
         val HOTSPOT_INTERFACE_PREFIXES = listOf("wlan", "ap", "swlan", "eth", "rndis")
+
+        const val UNKNOWN_ADDRESS_POLL_MS = 2_000L
     }
 }
