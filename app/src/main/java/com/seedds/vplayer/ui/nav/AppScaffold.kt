@@ -26,6 +26,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.seedds.vplayer.app.AppContainer
 import com.seedds.vplayer.library.LibraryScreen
@@ -66,6 +69,25 @@ fun AppScaffold(container: AppContainer) {
             libraryViewModel.onLibraryChangedElsewhere()
         }
         onDispose { container.serverController.setLibraryChangedListener(null) }
+    }
+
+    // Coming back to the app reloads the library, one of the spec's reload
+    // triggers. The first start is skipped: the view model has just loaded.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        var stopped = false
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_STOP -> stopped = true
+                Lifecycle.Event.ON_START -> if (stopped) {
+                    stopped = false
+                    libraryViewModel.refresh()
+                }
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     // Sweep the whole library once the first frame is up, so the sweep never
