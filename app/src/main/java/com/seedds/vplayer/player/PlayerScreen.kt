@@ -99,6 +99,9 @@ fun PlayerScreen(
                     player = viewModel.player
                 }
             },
+            // Nobody touches the screen while watching, so without this it
+            // dims and sleeps mid-video. Paused, it may sleep as usual.
+            update = { view -> view.keepScreenOn = state.isPlaying },
             onRelease = { view -> view.player = null },
         )
 
