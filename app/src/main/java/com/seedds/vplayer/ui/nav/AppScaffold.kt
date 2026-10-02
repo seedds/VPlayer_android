@@ -1,5 +1,6 @@
 package com.seedds.vplayer.ui.nav
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -119,6 +120,20 @@ fun AppScaffold(container: AppContainer) {
         null -> Unit
     }
 
+    fun selectTab(tab: TabDestination) {
+        selectedTab = tab
+        when (tab) {
+            TabDestination.Library -> libraryViewModel.refresh()
+            else -> libraryViewModel.cancelSelection()
+        }
+    }
+
+    // Back from Upload or Settings returns to the Library; only the Library
+    // hands it on, to its own folders and then out of the app.
+    BackHandler(enabled = selectedTab != TabDestination.Library) {
+        selectTab(TabDestination.Library)
+    }
+
     Scaffold(
         containerColor = VColors.Background,
         bottomBar = {
@@ -128,13 +143,7 @@ fun AppScaffold(container: AppContainer) {
                     TabDestination.entries.forEach { tab ->
                         NavigationBarItem(
                             selected = selectedTab == tab,
-                            onClick = {
-                                selectedTab = tab
-                                when (tab) {
-                                    TabDestination.Library -> libraryViewModel.refresh()
-                                    else -> libraryViewModel.cancelSelection()
-                                }
-                            },
+                            onClick = { selectTab(tab) },
                             icon = {},
                             label = { Text(text = tab.label, fontSize = 12.sp, fontWeight = FontWeight.Bold) },
                             colors = NavigationBarItemDefaults.colors(

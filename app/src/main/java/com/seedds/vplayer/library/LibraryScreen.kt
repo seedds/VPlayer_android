@@ -1,5 +1,6 @@
 package com.seedds.vplayer.library
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -56,6 +57,12 @@ fun LibraryScreen(
     var openRowPath by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(listState.isScrollInProgress, state.selectionMode) {
         if (listState.isScrollInProgress || state.selectionMode) openRowPath = null
+    }
+
+    // System back steps out the way the toolbar does: leave selection first,
+    // then climb a folder. Only at the root does it leave the app.
+    BackHandler(enabled = state.selectionMode || state.currentFolderPath != null) {
+        if (state.selectionMode) viewModel.cancelSelection() else viewModel.navigateUp()
     }
 
     Column(modifier = modifier.fillMaxSize().background(VColors.Background)) {
