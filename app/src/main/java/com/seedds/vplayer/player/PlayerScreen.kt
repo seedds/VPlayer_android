@@ -222,7 +222,11 @@ private fun PlayerControls(
                         frame = state.previewFrame,
                         progress = state.progress,
                         stripWidthPx = stripWidthPx,
-                        modifier = Modifier.align(Alignment.TopStart).padding(bottom = 12.dp),
+                        // 56dp up from the strip's bottom edge, as spec B4
+                        // gives it: clear of the strip with a 12dp gap.
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .padding(bottom = STRIP_HEIGHT + 12.dp),
                     )
                 }
                 SeekStrip(
